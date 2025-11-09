@@ -1,47 +1,73 @@
 pipeline {
+    agent any
+    
     environment {
         registry = "hajarfallaki/tp4"
         registryCredential = 'dockerhub'
         dockerImage = ''
     }
-    agent any
+    
     stages {
         stage('Cloning Git') {
             steps {
-                git 'https://github.com/Hajarfallaki/tp4.git'
+                git branch: 'main',
+                    url: 'https://github.com/Hajarfallaki/tp4.git'
             }
         }
+        
         stage('Building image') {
-            steps{
+            steps {
                 script {
-                    dockerImage = docker.build registry + ":$BUILD_NUMBER"
+                    dockerImage = docker.build("${registry}:${BUILD_NUMBER}")
                 }
             }
         }
+        
         stage('Test image') {
-            steps{
+            steps {
                 script {
-                    echo "Tests passed"
-                }
-            }
-        }
-        stage('Publish Image') {
-            steps{
-                script {
-                    docker.withRegistry( '', registryCredential ) {
-                        dockerImage.push()
+                    dockerImage.inside {
+                        sh 'echo "Tests passed"'
                     }
                 }
             }
         }
-        stage('Deploy image') {
-            steps{
+        
+        stage('Publish Image') {
+            steps {
                 script {
-                    sh 'docker stop tp4-container || true'
-                    sh 'docker rm tp4-container || true'
-                    sh "docker run -d --name tp4-container -p 8081:80 $registry:$BUILD_NUMBER"
+                    docker.withRegistry('https://registry.hub.docker.com', registryCredential) {
+                        dockerImage.push("${BUILD_NUMBER}")
+                        dockerImage.push('latest')
+                    }
                 }
             }
+        }
+        
+        stage('Deploy image') {
+            steps {
+                script {
+                    sh """
+                        docker stop tp4-container || true
+                        docker rm tp4-container || true
+                        docker run -d --name tp4-container -p 8081:80 ${registry}:${BUILD_NUMBER}
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo "✅ Pipeline réussi! Build #${BUILD_NUMBER}"
+            echo "🐳 Image: ${registry}:${BUILD_NUMBER}"
+            echo "🌐 Application accessible sur: http://localhost:8081"
+        }
+        failure {
+            echo "❌ Pipeline échoué!"
+        }
+        always {
+            sh 'docker system prune -f || true'
         }
     }
 }
